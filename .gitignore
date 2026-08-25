@@ -1,0 +1,30 @@
+# ============ 敏感信息：绝对不要推到 GitHub ============
+# 你的 VK / X 账号登录 cookies
+提供信息/
+# 含真实 api_id / api_hash 的配置
+config.toml
+# Telegram 登录 session（等价于账号密码）
+*.session
+*.session-journal
+# SQLite 运行数据
+tgbot.db
+
+# ============ Python ============
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+env/
+.python-version
+
+# ============ 临时/下载 ============
+tmp/
+*.part
+*.ytdl
+
+# ============ 系统 ============
+.DS_Store
+Thumbs.db
+*.log
+nohup.out

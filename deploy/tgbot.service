@@ -1,0 +1,20 @@
+[Unit]
+Description=TG Channel Automation Bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=tgbot
+WorkingDirectory=/opt/tgbot
+ExecStart=/opt/tgbot/.venv/bin/python -m tgbot.main
+Restart=on-failure
+RestartSec=15
+Environment=PYTHONUNBUFFERED=1
+# 内存保护：本机只有 2GB，限制机器人常驻内存防止挤占 X-Ray
+MemoryMax=1G
+# 自动清理 20 分钟无响应的卡死（上传卡住等）
+TimeoutStartSec=120
+
+[Install]
+WantedBy=multi-user.target

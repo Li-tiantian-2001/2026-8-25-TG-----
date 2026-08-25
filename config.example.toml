@@ -1,0 +1,32 @@
+# TG 频道自动化机器人 · 配置示例（脱敏）
+# 复制为 config.toml 后填入真实值
+
+[telegram]
+api_id = 0            # my.telegram.org 申请的 api_id
+api_hash = ""         # my.telegram.org 申请的 api_hash
+session = "tgbot_session"
+
+[download]
+cookies_file = "提供信息/cookies.txt"
+temp_dir = ""
+max_file_mb = 3800
+format = "best[ext=mp4]/bestvideo[ext=mp4]+bestaudio[ext=m4a]/bestvideo+bestaudio/best"
+retries = 5
+socket_timeout = 60
+
+[upload]
+min_interval_sec = 60
+daily_cap = 30
+upload_timeout_sec = 1800
+caption_prefix = ""
+
+[storage]
+db_path = "tgbot.db"
+disk_watermark_pct = 80
+cleanup_interval_sec = 3600
+temp_max_age_sec = 21600
+
+[follow]
+enabled = true
+
+target_channel = ""
