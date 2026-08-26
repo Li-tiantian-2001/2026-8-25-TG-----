@@ -7,7 +7,8 @@ api_hash = ""         # my.telegram.org 申请的 api_hash
 session = "tgbot_session"
 
 [download]
-cookies_file = "提供信息/cookies.txt"
+# VK + X 的 cookies（Netscape 格式），放在项目根目录
+cookies_file = "cookies.txt"
 temp_dir = ""
 max_file_mb = 3800
 format = "best[ext=mp4]/bestvideo[ext=mp4]+bestaudio[ext=m4a]/bestvideo+bestaudio/best"
@@ -28,5 +29,13 @@ temp_max_age_sec = 21600
 
 [follow]
 enabled = true
+# 允许搬运的媒体类型：video=视频, photo=图片
+allow_media = ["video", "photo"]
+# 是否屏蔽"转发自其他频道"的帖子（可能是广告）
+block_forwarded = false
+# 广告关键词黑名单（正文/文案命中即屏蔽）
+ad_keywords = ["广告", "推广", "合作", "商务", "商谈", "请联系", "加我", "加微信", "加群", "优惠", "促销", "折扣", "代购", "返利", "刷粉", "涨粉", "代理", "充值", "下单", "sponsored", "advertisement", "promo", "discount", "sale", "offer"]
+# 广告域名黑名单（正文/文案里出现这些域名的链接即屏蔽）
+ad_domains = []
 
 target_channel = ""

@@ -9,7 +9,7 @@ from pathlib import Path
 DEFAULTS: dict = {
     "telegram": {"api_id": 0, "api_hash": "", "session": "tgbot_session"},
     "download": {
-        "cookies_file": "提供信息/cookies.txt",
+        "cookies_file": "cookies.txt",
         "temp_dir": "",
         "max_file_mb": 3800,
         "format": "best[ext=mp4]/bestvideo[ext=mp4]+bestaudio[ext=m4a]/bestvideo+bestaudio/best",
@@ -28,7 +28,17 @@ DEFAULTS: dict = {
         "cleanup_interval_sec": 3600,
         "temp_max_age_sec": 21600,
     },
-    "follow": {"enabled": True},
+    "follow": {
+        "enabled": True,
+        "allow_media": ["video", "photo"],
+        "block_forwarded": False,
+        "ad_keywords": [
+            "广告", "推广", "合作", "商务", "商谈", "请联系", "加我", "加微信", "加群",
+            "优惠", "促销", "折扣", "代购", "返利", "刷粉", "涨粉", "代理", "充值", "下单",
+            "sponsored", "advertisement", "promo", "discount", "sale", "offer",
+        ],
+        "ad_domains": [],
+    },
     "target_channel": "",
 }
 

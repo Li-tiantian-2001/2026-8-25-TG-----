@@ -60,19 +60,26 @@ async def resolve_peer(client: TelegramClient, peer) -> Optional[object]:
         return None
 
 
-def _has_video(msg) -> bool:
+def media_kind(msg) -> Optional[str]:
+    """返回消息媒体类型：video / photo / None。"""
     if msg.video:
-        return True
+        return "video"
     doc = getattr(msg, "document", None)
     if doc and (getattr(doc, "mime_type", "") or "").startswith("video/"):
-        return True
-    return False
+        return "video"
+    if getattr(msg, "photo", None):
+        return "photo"
+    return None
 
 
-async def fetch_tg_video(
-    client: TelegramClient, peer, msg_id: int, outdir: str
+def media_allowed(msg, allowed) -> bool:
+    return media_kind(msg) in (allowed or ["video"])
+
+
+async def fetch_tg_media(
+    client: TelegramClient, peer, msg_id: int, outdir: str, allowed
 ) -> Optional[Tuple[str, str]]:
-    """下载 TG 消息中的视频到 outdir，返回 (路径, 原帖文字)；无视频返回 None。"""
+    """下载 TG 消息中允许的媒体到 outdir，返回 (路径, 媒体类型)；无可用媒体返回 None。"""
     entity = await resolve_peer(client, peer)
     if entity is None:
         return None
@@ -85,8 +92,11 @@ async def fetch_tg_video(
         log.warning("消息不存在 %s/%s", peer, msg_id)
         return None
 
-    if not _has_video(msg):
-        log.info("消息 %s/%s 没有视频，跳过", peer, msg_id)
+    kind = media_kind(msg)
+    if kind not in (allowed or ["video"]):
+        log.info(
+            "消息 %s/%s 媒体类型=%s 不在允许列表 %s，跳过", peer, msg_id, kind, allowed
+        )
         return None
 
     try:
@@ -96,4 +106,4 @@ async def fetch_tg_video(
         return None
     if not path:
         return None
-    return str(path), (getattr(msg, "message", None) or "")
+    return str(path), kind

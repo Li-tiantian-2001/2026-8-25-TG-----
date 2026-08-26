@@ -2,7 +2,7 @@
 # TG 频道自动化机器人 · 一键部署脚本（Ubuntu/Debian，2H2G 与 X-Ray 共存）
 # 用法：在项目根目录执行  bash deploy/install.sh
 #   支持两种来源：① 整个目录 scp 上来 ② git clone 自 GitHub
-# 注意：GitHub 仓库不含 config.toml 与 提供信息/（敏感），需要手动 scp 到服务器
+# 注意：GitHub 仓库不含 config.toml 与 cookies.txt（敏感），需要手动 scp 到服务器
 set -euo pipefail
 
 APP_DIR="/opt/tgbot"
@@ -27,12 +27,15 @@ else
   echo "       请编辑 $APP_DIR/config.toml 填入 api_id / api_hash（my.telegram.org 获取）"
 fi
 
-# --- 敏感目录（VK+X cookies 等）：存在则复制，否则提醒 ---
-if [ -d "$SRC_DIR/提供信息" ]; then
-  sudo cp -r "$SRC_DIR/提供信息" "$APP_DIR/提供信息"
+# --- 敏感文件（VK+X cookies / api_id-hash）：存在则复制，否则提醒 ---
+if [ -f "$SRC_DIR/cookies.txt" ]; then
+  sudo cp "$SRC_DIR/cookies.txt" "$APP_DIR/cookies.txt"
 else
-  echo "    ⚠️  未找到 提供信息/ 目录。请把本地的 提供信息/cookies.txt 传到服务器："
-  echo "       scp -r 提供信息 user@SERVER:/tmp/tgbot-secrets/  (再手动移到 $APP_DIR/提供信息)"
+  echo "    ⚠️  未找到 cookies.txt。请把本地的 cookies.txt 传到服务器："
+  echo "       scp cookies.txt user@SERVER:/tmp/tgbot-secrets/  (再移到 $APP_DIR/cookies.txt)"
+fi
+if [ -f "$SRC_DIR/tg-app_id-hash.txt" ]; then
+  sudo cp "$SRC_DIR/tg-app_id-hash.txt" "$APP_DIR/tg-app_id-hash.txt"
 fi
 sudo chown -R "$BOT_USER:$BOT_USER" "$APP_DIR"
 

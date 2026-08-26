@@ -41,6 +41,10 @@ class Store:
                     day TEXT PRIMARY KEY,
                     count INTEGER NOT NULL DEFAULT 0
                 );
+                CREATE TABLE IF NOT EXISTS blocked_daily(
+                    day TEXT PRIMARY KEY,
+                    count INTEGER NOT NULL DEFAULT 0
+                );
                 CREATE INDEX IF NOT EXISTS idx_records_url ON records(source_url, status);
                 """
             )
@@ -111,6 +115,28 @@ class Store:
         with self._lock, self._conn:
             row = self._conn.execute(
                 "SELECT count FROM daily_counts WHERE day=?", (today,)
+            ).fetchone()
+        return row["count"] if row else 0
+
+    # ---------- blocked-ads counter ----------
+    def bump_blocked_today(self, n: int = 1) -> int:
+        today = date.today().isoformat()
+        with self._lock, self._conn:
+            self._conn.execute(
+                "INSERT INTO blocked_daily(day,count) VALUES(?,?) "
+                "ON CONFLICT(day) DO UPDATE SET count=count+excluded.count",
+                (today, n),
+            )
+            row = self._conn.execute(
+                "SELECT count FROM blocked_daily WHERE day=?", (today,)
+            ).fetchone()
+        return row["count"] if row else 0
+
+    def blocked_today(self) -> int:
+        today = date.today().isoformat()
+        with self._lock, self._conn:
+            row = self._conn.execute(
+                "SELECT count FROM blocked_daily WHERE day=?", (today,)
             ).fetchone()
         return row["count"] if row else 0
 

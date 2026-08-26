@@ -3,7 +3,9 @@
 一个**薄壳版** TG 频道自动化机器人：备用小号（Telethon 用户号）负责下载与上传，用小号自己的**收藏夹（Saved Messages）做遥控器**，无需注册任何 Bot。
 
 - **需求 1**：把 VK / X / YouTube 等链接的视频下载到服务器，再上传到你的频道（用户号上限 4GB，解决"Bot 发不出大文件"问题）
-- **需求 2**：把其他频道/群组的视频搬到自己的频道 —— 支持 **单条 t.me 链接**搬运 + **整频道自动跟播**，受限频道能搬就搬
+- **需求 2**：把其他频道/群组的**图片/视频**搬到自己的频道 —— 支持 **单条 t.me 链接**搬运 + **整频道自动跟播**，受限频道能搬就搬
+  - **屏蔽文案与发送人**：只搬裸媒体（下载→重传，无"转发自"标签、无文案、显示为你频道）
+  - **广告甄别**：关键词黑名单 + 域名黑名单 + 转发标记，命中即屏蔽不搬运（`!status` 可看今日屏蔽数）
 - 内置**冷却时间 / FloodWait 自动退避 / 每日发帖上限**，降低风控风险
 
 ---
@@ -11,23 +13,24 @@
 ## 目录结构
 
 ```
-├── config.toml              # 配置（含你的 api_id/hash）
+├── config.toml              # 配置（含你的 api_id/hash，敏感，勿提交）
 ├── config.example.toml      # 脱敏示例
+├── cookies.txt              # VK + X 的 cookies（敏感，勿提交）
+├── tg-app_id-hash.txt       # api_id / api_hash（敏感，勿提交）
 ├── requirements.txt
 ├── tgbot/
 │   ├── main.py              # 入口：--login 首次登录 / 正常运行
 │   ├── bot.py               # 核心：收藏夹指令 + 跟播 + 队列 + 清理/水位
 │   ├── config.py            # TOML 配置
-│   ├── db.py                # SQLite（去重 / 设置 / 每日计数）
+│   ├── db.py                # SQLite（去重 / 设置 / 每日计数 / 广告屏蔽计数）
+│   ├── ad_filter.py         # 广告甄别（关键词 / 域名 / 转发标记）
 │   ├── ytdlp_downloader.py  # yt-dlp 下载（VK/X + cookies + mp4 优先）
-│   ├── tg_fetch.py          # t.me 链接解析 + Telethon 取视频
+│   ├── tg_fetch.py          # t.me 链接解析 + Telethon 取图片/视频
 │   └── uploader.py          # 串行上传 + 冷却 + FloodWait 退避 + 每日上限
 ├── deploy/
 │   ├── tgbot.service        # systemd 单元
 │   └── install.sh           # 一键部署
-└── 提供信息/
-    ├── cookies.txt          # VK + X 的 cookies（敏感，勿外传）
-    └── tg-app_id-hash.txt   # api_id / api_hash（敏感）
+└── .gitignore               # 已屏蔽所有敏感文件
 ```
 
 ---
@@ -54,7 +57,7 @@
 
 1. **本地准备**
    - 在 `my.telegram.org` 申请 `api_id` / `api_hash`（任何手机号都能领）
-   - 用 Cookie-Editor 等导出 **VK** 和 **X** 的 cookies（Netscape 格式）到 `提供信息/cookies.txt`
+   - 用 Cookie-Editor 等导出 **VK** 和 **X** 的 cookies（Netscape 格式），命名为 `cookies.txt` 放到项目根目录
    - 备用小号先在手机上养几天号、加入要跟播的源频道、把备用小号设为你频道的管理员（开启"发帖"权限）
 
 2. **上传到服务器**（示例用 scp）
@@ -88,7 +91,7 @@ sudo apt-get update && sudo apt-get install -y python3 python3-venv python3-pip 
 
 # 2. 项目
 sudo mkdir -p /opt/tgbot && cd /opt/tgbot
-# 把 tgbot/、config.toml、提供信息/、requirements.txt 放进来
+# 把 tgbot/、config.toml、cookies.txt、requirements.txt 放进来
 
 # 3. venv
 sudo -u tgbot python3 -m venv .venv 2>/dev/null || python3 -m venv .venv
@@ -109,17 +112,21 @@ sudo systemctl daemon-reload && sudo systemctl enable --now tgbot
 | 配置 | 默认 | 说明 |
 |---|---|---|
 | `telegram.api_id / api_hash` | — | my.telegram.org 申请 |
-| `download.cookies_file` | `提供信息/cookies.txt` | VK+X cookies，X 下载必需 |
+| `download.cookies_file` | `cookies.txt` | VK+X cookies，X 下载必需 |
 | `download.max_file_mb` | `3800` | 用户号上限 4096MB，留安全余量 |
 | `download.format` | mp4/H.264 优先 | 兼容性最好 |
 | `upload.min_interval_sec` | `60` | **冷却时间**：两帖最小间隔，防触发风控 |
 | `upload.daily_cap` | `30` | 每日发帖上限 |
+| `follow.allow_media` | `["video","photo"]` | 只搬哪些媒体（视频/图片） |
+| `follow.block_forwarded` | `false` | 屏蔽"转发自他人"的帖子（防广告） |
+| `follow.ad_keywords` | 中英常用广告词 | 正文/文案命中即屏蔽 |
+| `follow.ad_domains` | 空 | 出现这些域名的链接即屏蔽 |
 | `storage.disk_watermark_pct` | `80` | 磁盘水位，超了自动暂停上传 |
 | `target_channel` | 空 | 可留空，用 `!target` 设置 |
 
 ## 推送到 GitHub 并在服务器安装
 
-> 本项目已在仓库里排除敏感文件（`.gitignore` 屏蔽了 `config.toml`、`提供信息/`、`*.session`、`tgbot.db`）。
+> 本项目已在仓库里排除敏感文件（`.gitignore` 屏蔽了 `cookies.txt`、`tg-app_id-hash.txt`、`config.toml`、`*.session`、`tgbot.db`）。
 > 无论仓库公开还是私有，**都不要把 cookies / api_hash / session 推到 GitHub**。
 
 ### 1. 创建仓库并推送（在本机执行）
@@ -141,8 +148,8 @@ git push -u origin main
 推送前先确认敏感文件没被跟踪：
 
 ```bash
-git status --porcelain          # 应不包含 config.toml / 提供信息 / *.session
-git ls-files | grep -E 'config\.toml|提供信息|session' || echo "OK，无敏感文件"
+git status --porcelain          # 应不包含 cookies.txt / tg-app_id-hash.txt / config.toml / *.session
+git ls-files | grep -E 'cookies|app_id|config\.toml|session|tgbot\.db' || echo "OK，无敏感文件"
 ```
 
 ### 2. 在服务器上安装
@@ -152,18 +159,19 @@ git ls-files | grep -E 'config\.toml|提供信息|session' || echo "OK，无敏�
 cd /opt && sudo git clone https://github.com/你的用户名/tg-channel-bot.git tgbot
 cd tgbot
 
-# ② 把敏感文件从本机传到服务器（只传这一次）
+# ② 把敏感文件从本机传到服务器（只传这一次，不进 GitHub）
 #    在本机（项目目录）执行：
-#    scp -r 提供信息 config.toml user@服务器IP:/tmp/tgbot-secrets/
+#    scp cookies.txt tg-app_id-hash.txt config.toml user@服务器IP:/tmp/tgbot-secrets/
 #    然后在服务器执行：
-#    sudo cp -r /tmp/tgbot-secrets/提供信息 /opt/tgbot/提供信息
+#    sudo cp /tmp/tgbot-secrets/cookies.txt /opt/tgbot/cookies.txt
+#    sudo cp /tmp/tgbot-secrets/tg-app_id-hash.txt /opt/tgbot/tg-app_id-hash.txt
 #    sudo cp /tmp/tgbot-secrets/config.toml /opt/tgbot/config.toml
 
 # ③ 一键部署
 bash deploy/install.sh
 ```
 
-`install.sh` 会：装依赖 → 生成 venv → **用备用小号登录一次**（输入手机号+验证码）→ 装成 systemd 服务。若没有 `config.toml`/`提供信息`，脚本会提示你手动补。
+`install.sh` 会：装依赖 → 生成 venv → **用备用小号登录一次**（输入手机号+验证码）→ 装成 systemd 服务。若没有 `config.toml`/`cookies.txt`，脚本会提示你手动补。
 
 ### 3. 日常更新
 

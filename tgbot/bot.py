@@ -12,9 +12,10 @@ from typing import Optional
 
 from telethon import TelegramClient, events
 
+from .ad_filter import is_ad
 from .config import Config
 from .db import Store
-from .tg_fetch import fetch_tg_video, is_tg_domain, parse_tg_link
+from .tg_fetch import fetch_tg_media, is_tg_domain, media_allowed, parse_tg_link
 from .uploader import Uploader
 from .ytdlp_downloader import YtDlpDownloader
 
@@ -60,6 +61,12 @@ class TgBot:
         self.client = TelegramClient(cfg.session, cfg.api_id, cfg.api_hash)
         self.uploader = Uploader(self.client, self.store, cfg)
 
+        fl = cfg.data["follow"]
+        self.allow_media = list(fl.get("allow_media", ["video", "photo"]) or ["video", "photo"])
+        self.ad_keywords = list(fl.get("ad_keywords", []) or [])
+        self.ad_domains = list(fl.get("ad_domains", []) or [])
+        self.block_forwarded = bool(fl.get("block_forwarded", False))
+
         self.queue: asyncio.Queue = asyncio.Queue()
         self.status: dict = {}
         self._me_id: Optional[int] = None
@@ -86,6 +93,10 @@ class TgBot:
 
     async def check_paused(self) -> bool:
         return bool(self.store.get_setting("paused", False))
+
+    def _is_ad_msg(self, msg) -> bool:
+        """广告甄别：转发标记 / 关键词 / 域名黑名单，任一命中即视为广告。"""
+        return is_ad(msg, self.ad_keywords, self.ad_domains, self.block_forwarded)
 
     # ---------- 入队 ----------
     async def enqueue(self, task: dict) -> None:
@@ -132,9 +143,11 @@ class TgBot:
             elif kind in ("tg_single", "tg_follow"):
                 peer = task["peer"]
                 msg_id = task["msg_id"]
-                self.set_status(task_id, f"从 TG 取视频: {peer}/{msg_id}")
-                await self.report(f"⬇️ 从 TG 取视频: {peer}/{msg_id}")
-                res = await fetch_tg_video(self.client, peer, msg_id, self.temp_dir)
+                self.set_status(task_id, f"从 TG 取媒体: {peer}/{msg_id}")
+                await self.report(f"⬇️ 从 TG 取媒体: {peer}/{msg_id}")
+                res = await fetch_tg_media(
+                    self.client, peer, msg_id, self.temp_dir, self.allow_media
+                )
                 if res:
                     path = res[0]
             else:
@@ -142,7 +155,7 @@ class TgBot:
 
             if not path:
                 self.store.mark_failed(task_id, "no media / download failed")
-                await self.report(f"❌ 取不到视频: {task.get('source_url') or task.get('url')}")
+                await self.report(f"❌ 取不到媒体: {task.get('source_url') or task.get('url')}")
                 return
 
             size_mb = os.path.getsize(path) / 1024 / 1024
@@ -188,9 +201,13 @@ class TgBot:
             return
 
         if event.chat_id in self._follow_peers:  # 跟播源
-            if msg.video or (
-                msg.document and (getattr(msg.document, "mime_type", "") or "").startswith("video/")
-            ):
+            # 广告甄别：命中关键词/域名/转发标记 → 屏蔽，不搬
+            if self._is_ad_msg(msg):
+                self.store.bump_blocked_today()
+                log.info("屏蔽疑似广告 %s/%s", event.chat_id, msg.id)
+                return
+            # 只搬允许的媒体（视频/图片），不搬文案与发送者
+            if media_allowed(msg, self.allow_media):
                 try:
                     peer = event.chat  # 直接传实体更可靠
                 except Exception:
@@ -209,7 +226,7 @@ class TgBot:
         if text.startswith("!"):
             await self._run_command(text)
             return
-        if msg.video and not text:  # 直接把视频转发到收藏夹 → 复制
+        if media_allowed(msg, self.allow_media) and not text:  # 直接把视频/图片转发到收藏夹 → 复制
             await self.enqueue(
                 {
                     "kind": "tg_single",
@@ -339,6 +356,7 @@ class TgBot:
         lines = [
             f"📥 队列: {qsize} 个待处理",
             f"📤 今日已发: {today}/{cap}",
+            f"🚫 今日屏蔽广告: {self.store.blocked_today()}",
             f"⏸ 暂停: {'是' if await self.check_paused() else '否'}",
         ]
         try:
