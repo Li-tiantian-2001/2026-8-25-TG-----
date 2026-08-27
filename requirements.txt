@@ -1,2 +1,4 @@
 telethon>=1.36,<2.0
 yt-dlp>=2024.12.13
+# Python 3.10 及以下需要 tomli（3.11+ 用标准库 tomllib）
+tomli>=2.0; python_version < "3.11"

@@ -66,6 +66,7 @@ class TgBot:
         self.ad_keywords = list(fl.get("ad_keywords", []) or [])
         self.ad_domains = list(fl.get("ad_domains", []) or [])
         self.block_forwarded = bool(fl.get("block_forwarded", False))
+        self.ad_min_hits = int(fl.get("ad_min_hits", 1) or 1)
 
         self.queue: asyncio.Queue = asyncio.Queue()
         self.status: dict = {}
@@ -95,8 +96,10 @@ class TgBot:
         return bool(self.store.get_setting("paused", False))
 
     def _is_ad_msg(self, msg) -> bool:
-        """广告甄别：转发标记 / 关键词 / 域名黑名单，任一命中即视为广告。"""
-        return is_ad(msg, self.ad_keywords, self.ad_domains, self.block_forwarded)
+        """广告甄别：转发标记 / 关键词（命中>=ad_min_hits）/ 域名黑名单。"""
+        return is_ad(
+            msg, self.ad_keywords, self.ad_domains, self.block_forwarded, self.ad_min_hits
+        )
 
     # ---------- 入队 ----------
     async def enqueue(self, task: dict) -> None:
@@ -220,6 +223,8 @@ class TgBot:
                         "source_url": f"t.me/{event.chat_id}/{msg.id}",
                     }
                 )
+            else:
+                log.info("跟播源 %s 收到新消息但无允许媒体（文字/文件/音频等），跳过", event.chat_id)
 
     async def _handle_saved(self, msg) -> None:
         text = (msg.text or "").strip()
@@ -322,17 +327,28 @@ class TgBot:
         except Exception as e:
             await self.report(f"无法解析 {ref}: {e}")
             return
+        # 归一化 peer id：entity.id 与 event.chat_id 可能差一个 -100 前缀，两者都加入比对集合
         cid = entity.id
+        try:
+            cid_marked = await self.client.get_peer_id(entity)
+        except Exception:
+            cid_marked = cid
         sources = list(self.store.get_setting("follow_sources", []) or [])
         title = getattr(entity, "title", None) or clean
         if add:
             self._follow_peers.add(cid)
+            self._follow_peers.add(cid_marked)
             if ref not in sources:
                 sources.append(ref)
                 self.store.set_setting("follow_sources", sources)
-            await self.report(f"👁 已跟播: {title}")
+            msg = f"👁 已跟播: {title}"
+            # 小号未加入该频道就收不到更新 → 给明确提示
+            if getattr(entity, "left", False):
+                msg += "\n⚠️ 小号还没【加入】这个频道，加入后才能收到更新并自动搬运（频道设置里点加入）"
+            await self.report(msg)
         else:
             self._follow_peers.discard(cid)
+            self._follow_peers.discard(cid_marked)
             sources = [s for s in sources if s != ref]
             self.store.set_setting("follow_sources", sources)
             await self.report(f"👁 已取消跟播: {title}")
@@ -383,8 +399,14 @@ class TgBot:
             try:
                 entity = await self.client.get_entity(clean)
                 self._follow_peers.add(entity.id)
+                try:
+                    self._follow_peers.add(await self.client.get_peer_id(entity))
+                except Exception:
+                    pass
             except Exception as e:
                 log.warning("加载跟播源失败 %s: %s", ref, e)
+        if self._follow_peers:
+            log.info("已加载 %d 个跟播源 peer id: %s", len(self._follow_peers), sorted(self._follow_peers))
 
     # ---------- 清理 / 水位 ----------
     async def _cleanup_loop(self) -> None:

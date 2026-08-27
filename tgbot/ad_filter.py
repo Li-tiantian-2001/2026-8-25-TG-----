@@ -25,17 +25,30 @@ def extract_domains(text: str) -> List[str]:
     return out
 
 
-def is_ad(msg, keywords: List[str], domains: List[str], block_forwarded: bool) -> bool:
-    """命中任一规则即视为广告：转发标记 / 关键词 / 域名黑名单。"""
+def is_ad(
+    msg,
+    keywords: List[str],
+    domains: List[str],
+    block_forwarded: bool,
+    min_hits: int = 1,
+) -> bool:
+    """判定是否为广告：
+    - 转发标记命中（block_forwarded）→ 是
+    - 域名黑名单命中 → 是
+    - 关键词命中 >= min_hits 个 → 是（默认 1；词表太宽可调大以减少误伤）
+    """
     if block_forwarded and getattr(msg, "fwd_from", None):
         return True
 
     text = _text_of(msg)
     low = text.lower()
 
+    hits = 0
     for kw in keywords or []:
         if kw and kw.lower() in low:
-            return True
+            hits += 1
+            if hits >= min_hits:
+                return True
 
     if domains:
         for d in extract_domains(text):

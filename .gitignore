@@ -10,6 +10,10 @@ tg-app_id-hash.txt
 *.session-journal
 # SQLite 运行数据
 tgbot.db
+# 个人备注/草稿文件（屏蔽词列表等）
+屏蔽词*.txt
+备忘*.txt
+笔记*.txt
 
 # ============ Python ============
 __pycache__/

@@ -119,6 +119,7 @@ sudo systemctl daemon-reload && sudo systemctl enable --now tgbot
 | `upload.daily_cap` | `30` | 每日发帖上限 |
 | `follow.allow_media` | `["video","photo"]` | 只搬哪些媒体（视频/图片） |
 | `follow.block_forwarded` | `false` | 屏蔽"转发自他人"的帖子（防广告） |
+| `follow.ad_min_hits` | `1` | 同一条文案命中 ≥ 几个词才算广告（误伤多就调大） |
 | `follow.ad_keywords` | 中英常用广告词 | 正文/文案命中即屏蔽 |
 | `follow.ad_domains` | 空 | 出现这些域名的链接即屏蔽 |
 | `storage.disk_watermark_pct` | `80` | 磁盘水位，超了自动暂停上传 |

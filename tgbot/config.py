@@ -1,10 +1,14 @@
-"""配置加载（TOML，Python 3.11+ 标准库 tomllib）。"""
+"""配置加载（TOML；Python 3.11+ 用标准库 tomllib，3.10 及以下用 tomli）。"""
 from __future__ import annotations
 
 import sys
-import tomllib
 from dataclasses import dataclass
 from pathlib import Path
+
+try:
+    import tomllib  # Python 3.11+
+except ModuleNotFoundError:  # Python 3.10 及以下
+    import tomli as tomllib  # 需 requirements.txt 里的 tomli
 
 DEFAULTS: dict = {
     "telegram": {"api_id": 0, "api_hash": "", "session": "tgbot_session"},
@@ -32,10 +36,14 @@ DEFAULTS: dict = {
         "enabled": True,
         "allow_media": ["video", "photo"],
         "block_forwarded": False,
+        "ad_min_hits": 1,
         "ad_keywords": [
-            "广告", "推广", "合作", "商务", "商谈", "请联系", "加我", "加微信", "加群",
-            "优惠", "促销", "折扣", "代购", "返利", "刷粉", "涨粉", "代理", "充值", "下单",
-            "sponsored", "advertisement", "promo", "discount", "sale", "offer",
+            "群组", "频道", "视频", "音乐", "必备", "搜索", "公开", "实力", "直播", "内幕",
+            "数据", "精准", "备用", "体育", "存款", "微信", "支付宝", "银行卡", "客服", "经理",
+            "官方", "品牌", "信赖", "真人", "无忧", "提款", "大额", "抽奖", "短句", "上头",
+            "精选", "系列", "t.me", "http", "@", "洗浴", "全国", "代理", "圈子", "会员",
+            "内容", "付费", "资源", "链接", "详情", "议价", "推荐", "入圈", "梯子", "套餐",
+            "vpn", "https", "实测", "退款", "退费", "下注", "一注",
         ],
         "ad_domains": [],
     },
