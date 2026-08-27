@@ -16,7 +16,8 @@ retries = 5
 socket_timeout = 60
 
 [upload]
-min_interval_sec = 60
+# 主频道（目标频道）全局冷却：两次发帖最小间隔，不得低于 30s
+min_interval_sec = 30
 daily_cap = 30
 upload_timeout_sec = 1800
 caption_prefix = ""
@@ -29,8 +30,12 @@ temp_max_age_sec = 21600
 
 [follow]
 enabled = true
-# 允许搬运的媒体类型：video=视频, photo=图片
-allow_media = ["video", "photo"]
+# 跟播搬运方式：forward=真转发（不下载，保留"转发自"+原文案，最快省资源）；download=下载后重传（无痕去标记去文案）
+mode = "forward"
+# 每个跟播源频道的冷却：interval_sec 内只搬 1 条，冷却中的更新直接忽略
+interval_sec = 300
+# 只搬视频；连体消息（相册）含视频则整组转发（图片随行）
+allow_media = ["video"]
 # 是否屏蔽"转发自其他频道"的帖子（可能是广告）
 block_forwarded = false
 # 广告关键词黑名单（原文案命中即屏蔽）

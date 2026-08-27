@@ -15,7 +15,14 @@ from telethon import TelegramClient, events
 from .ad_filter import is_ad
 from .config import Config
 from .db import Store
-from .tg_fetch import fetch_tg_media, is_tg_domain, media_allowed, parse_tg_link
+from .tg_fetch import (
+    fetch_tg_media,
+    is_tg_domain,
+    media_allowed,
+    media_kind,
+    parse_tg_link,
+    resolve_peer,
+)
 from .uploader import Uploader
 from .ytdlp_downloader import YtDlpDownloader
 
@@ -29,6 +36,7 @@ HELP_TEXT = """\
 !follow <t.me链接 或 @用户名>             添加整频道跟播
 !unfollow <同>                            取消跟播
 !list                                     查看目标频道与跟播列表
+!follows                                  一次列出所有跟播频道+冷却状态
 !status                                   队列/今日数量/暂停/磁盘
 !pause / !resume                          暂停 / 恢复
 !dl <视频链接>                            强制按外部链接下载
@@ -62,7 +70,9 @@ class TgBot:
         self.uploader = Uploader(self.client, self.store, cfg)
 
         fl = cfg.data["follow"]
-        self.allow_media = list(fl.get("allow_media", ["video", "photo"]) or ["video", "photo"])
+        self.allow_media = list(fl.get("allow_media", ["video"]) or ["video"])
+        self.follow_mode = str(fl.get("mode") or "forward").lower()  # forward=真转发 / download=下载重传
+        self.follow_interval_sec = float(fl.get("interval_sec", 300) or 300)  # 每源冷却
         self.ad_keywords = list(fl.get("ad_keywords", []) or [])
         self.ad_domains = list(fl.get("ad_domains", []) or [])
         self.block_forwarded = bool(fl.get("block_forwarded", False))
@@ -72,6 +82,8 @@ class TgBot:
         self.status: dict = {}
         self._me_id: Optional[int] = None
         self._follow_peers = set()
+        self._source_last_forward: dict = {}  # 源 chat_id -> 上次成功转发时间（冷却用）
+        self._seen_groups: dict = {}          # grouped_id -> 入队时间（连体消息去重）
         self._self_texts: dict = {}  # 防"自己的回执又触发处理"的回环
 
     # ---------- 基础 ----------
@@ -146,6 +158,36 @@ class TgBot:
             elif kind in ("tg_single", "tg_follow"):
                 peer = task["peer"]
                 msg_id = task["msg_id"]
+                if kind == "tg_follow" and self.follow_mode == "forward":
+                    # 真转发：服务端复制，不下载不重传（保留转发自标签 + 原文案）
+                    entity = await resolve_peer(self.client, peer)
+                    if entity is None:
+                        self.store.mark_failed(task_id, "resolve peer failed")
+                        await self.report(f"❌ 无法解析来源: {task.get('source_url')}")
+                        return
+                    self.set_status(task_id, f"转发中: {peer}/{msg_id}")
+                    await self.report(
+                        f"↪️ 转发中: {task.get('source_url') or f'{peer}/{msg_id}'}"
+                    )
+                    ids = await self._resolve_forward_ids(
+                        entity, msg_id, task.get("grouped_id")
+                    )
+                    if not ids:
+                        self.store.mark_failed(task_id, "no forwardable media")
+                        await self.report(
+                            f"❌ 不搬（非视频/连体无视频/含广告）: {task.get('source_url')}"
+                        )
+                        return
+                    new_id = await self.uploader.forward(entity, ids, task_id)
+                    src = task.get("source_id")
+                    if new_id is not None:
+                        if src is not None:
+                            self._source_last_forward[src] = time.time()
+                        await self.report(f"✅ 已转发到目标频道 (消息 {new_id})")
+                    else:
+                        await self.report("⚠️ 转发被跳过（暂停/达上限/未设目标/失败）")
+                    return
+                # 下载→重传（无痕）：单条链接 / 直接转发到收藏夹
                 self.set_status(task_id, f"从 TG 取媒体: {peer}/{msg_id}")
                 await self.report(f"⬇️ 从 TG 取媒体: {peer}/{msg_id}")
                 res = await fetch_tg_media(
@@ -190,6 +232,48 @@ class TgBot:
     def dl_cfg(self) -> dict:
         return self.cfg.data["download"]
 
+    async def _resolve_forward_ids(self, entity, msg_id, grouped_id):
+        """确定要转发的消息 id 列表（真转发用）。空列表 = 不搬。
+
+        - 单条：仅视频才搬
+        - 连体消息：取整组；整组任一文案含广告 → 屏蔽；组内含视频才整组转发（图片随行）
+        """
+        if not grouped_id:
+            try:
+                msg = await self.client.get_messages(entity, ids=msg_id)
+            except Exception as e:
+                log.warning("取消息 %s/%s 失败: %s", entity, msg_id, e)
+                return []
+            if msg is None:
+                return []
+            if media_kind(msg) != "video":
+                log.info("单条 %s/%s 非视频，跳过", entity, msg_id)
+                return []
+            return [msg_id]
+
+        # 连体消息：以该消息为中心取一段，再按 grouped_id 过滤出整组
+        try:
+            msgs = await self.client.get_messages(
+                entity, min_id=msg_id - 15, max_id=msg_id + 15, limit=31
+            )
+        except Exception as e:
+            log.warning("取连体消息 %s/%s 失败: %s", entity, msg_id, e)
+            return []
+        group = [m for m in msgs if getattr(m, "grouped_id", None) == grouped_id]
+        if not group:
+            return []
+        # 整组文案任一含广告 → 整组屏蔽（连体消息的广告文案可能挂在任一条上）
+        for m in group:
+            if self._is_ad_msg(m):
+                self.store.bump_blocked_today()
+                log.info("连体消息 %s 含广告文案，整组屏蔽", grouped_id)
+                return []
+        # 组内含视频才整组转发（带图一并转发）
+        if not any(media_kind(m) == "video" for m in group):
+            log.info("连体消息 %s 无视频（纯图），跳过", grouped_id)
+            return []
+        return [m.id for m in group]
+
     # ---------- 事件 ----------
     async def _on_new_message(self, event: events.NewMessage.Event) -> None:
         msg = event.message
@@ -209,22 +293,45 @@ class TgBot:
                 self.store.bump_blocked_today()
                 log.info("屏蔽疑似广告 %s/%s", event.chat_id, msg.id)
                 return
-            # 只搬允许的媒体（视频/图片），不搬文案与发送者
-            if media_allowed(msg, self.allow_media):
-                try:
-                    peer = event.chat  # 直接传实体更可靠
-                except Exception:
-                    peer = event.chat_id
-                await self.enqueue(
-                    {
-                        "kind": "tg_follow",
-                        "peer": peer,
-                        "msg_id": msg.id,
-                        "source_url": f"t.me/{event.chat_id}/{msg.id}",
-                    }
-                )
+            # 只搬视频；连体消息（相册）含视频则整组转发（可带图）
+            kind = media_kind(msg)
+            grouped_id = getattr(msg, "grouped_id", None)
+            if grouped_id is None:
+                if kind != "video":
+                    log.info("跟播源 %s 非视频（%s）单条，跳过", event.chat_id, kind)
+                    return
             else:
-                log.info("跟播源 %s 收到新消息但无允许媒体（文字/文件/音频等），跳过", event.chat_id)
+                if grouped_id in self._seen_groups:
+                    log.info("连体消息 %s 已入队，忽略其余成员", grouped_id)
+                    return
+                self._seen_groups[grouped_id] = time.time()
+                if len(self._seen_groups) > 200:  # 只保留最近记录，防内存增长
+                    for k in sorted(self._seen_groups, key=self._seen_groups.get)[:100]:
+                        self._seen_groups.pop(k, None)
+            # 每个源频道冷却：interval_sec 内只搬 1 条，冷却中的更新直接忽略
+            last = self._source_last_forward.get(event.chat_id, 0.0)
+            remain = self.follow_interval_sec - (time.time() - last)
+            if remain > 0:
+                log.info(
+                    "源 %s 冷却中（还有 %ds），本次更新忽略",
+                    event.chat_id,
+                    int(remain),
+                )
+                return
+            try:
+                peer = event.chat  # 直接传实体更可靠
+            except Exception:
+                peer = event.chat_id
+            await self.enqueue(
+                {
+                    "kind": "tg_follow",
+                    "peer": peer,
+                    "msg_id": msg.id,
+                    "grouped_id": grouped_id,
+                    "source_id": event.chat_id,
+                    "source_url": f"t.me/{event.chat_id}/{msg.id}",
+                }
+            )
 
     async def _handle_saved(self, msg) -> None:
         text = (msg.text or "").strip()
@@ -275,6 +382,8 @@ class TgBot:
                 await self._cmd_follow(arg, add=False)
             elif cmd == "!list":
                 await self._cmd_list()
+            elif cmd == "!follows":
+                await self._cmd_follows()
             elif cmd == "!status":
                 await self._cmd_status()
             elif cmd == "!pause":
@@ -363,6 +472,39 @@ class TgBot:
         for s in sources:
             lines.append(f"   - {s}")
         lines.append(f"⏸ 暂停: {'是' if await self.check_paused() else '否'}")
+        await self.report("\n".join(lines))
+
+    async def _cmd_follows(self) -> None:
+        """一次列出所有正在跟播的频道：标题 + 冷却状态。"""
+        sources = list(self.store.get_setting("follow_sources", []) or [])
+        if not sources:
+            await self.report("👁 当前没有在跟播的频道。用 !follow <t.me链接或@用户名> 添加")
+            return
+        lines = [f"👁 正在跟播 {len(sources)} 个频道（每源 {int(self.follow_interval_sec)}s 一条）："]
+        for s in sources:
+            clean = (
+                s.replace("https://", "")
+                .replace("http://", "")
+                .replace("t.me/", "")
+                .replace("telegram.me/", "")
+                .lstrip("@")
+            )
+            title = clean
+            cid_marked = None
+            try:
+                entity = await self.client.get_entity(clean)
+                title = getattr(entity, "title", None) or clean
+                cid_marked = await self.client.get_peer_id(entity)
+            except Exception:
+                title = f"{clean} (无法解析)"
+            last = 0.0
+            if cid_marked is not None:
+                last = self._source_last_forward.get(cid_marked, 0.0)
+                if not last:
+                    last = self._source_last_forward.get(getattr(entity, "id", None), 0.0)
+            remain = self.follow_interval_sec - (time.time() - last)
+            state = f"冷却中 {int(remain)}s" if remain > 0 else "可搬"
+            lines.append(f"  • {title}  [{state}]")
         await self.report("\n".join(lines))
 
     async def _cmd_status(self) -> None:

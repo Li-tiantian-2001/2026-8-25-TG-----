@@ -3,9 +3,11 @@
 一个**薄壳版** TG 频道自动化机器人：备用小号（Telethon 用户号）负责下载与上传，用小号自己的**收藏夹（Saved Messages）做遥控器**，无需注册任何 Bot。
 
 - **需求 1**：把 VK / X / YouTube 等链接的视频下载到服务器，再上传到你的频道（用户号上限 4GB，解决"Bot 发不出大文件"问题）
-- **需求 2**：把其他频道/群组的**图片/视频**搬到自己的频道 —— 支持 **单条 t.me 链接**搬运 + **整频道自动跟播**，受限频道能搬就搬
-  - **屏蔽文案与发送人**：只搬裸媒体（下载→重传，无"转发自"标签、无文案、显示为你频道）
-  - **广告甄别**：关键词黑名单 + 域名黑名单 + 转发标记，命中即屏蔽不搬运（`!status` 可看今日屏蔽数）
+- **需求 2**：把其他频道/群组的**视频**搬到自己的频道 —— 支持 **单条 t.me 链接**搬运 + **整频道自动跟播**，受限频道能搬就搬
+  - **跟播默认"真转发"**：服务端复制，不下载不重传、秒级省资源（保留"转发自"+原文案）；想无痕可把 `follow.mode` 改成 `download`（下载→重传，去标签去文案）
+  - **只搬视频**：纯图片、文字、文件、音频等一律不搬；**连体消息（相册）里含视频则整组转发**（图片随行）
+  - **广告甄别**：关键词黑名单 + 域名黑名单 + 转发标记，命中即屏蔽不搬运（含连体消息整组文案复查，`!status` 可看今日屏蔽数）
+  - **冷却**：每个源频道 `follow.interval_sec`（默认 300s）内只搬 1 条，冷却中的更新直接忽略；主频道全局两次发帖间隔 ≥ `upload.min_interval_sec`（30s）
 - 内置**冷却时间 / FloodWait 自动退避 / 每日发帖上限**，降低风控风险
 
 ---
@@ -26,7 +28,7 @@
 │   ├── ad_filter.py         # 广告甄别（关键词 / 域名 / 转发标记）
 │   ├── ytdlp_downloader.py  # yt-dlp 下载（VK/X + cookies + mp4 优先）
 │   ├── tg_fetch.py          # t.me 链接解析 + Telethon 取图片/视频
-│   └── uploader.py          # 串行上传 + 冷却 + FloodWait 退避 + 每日上限
+│   └── uploader.py          # 串行上传/转发 + 冷却 + FloodWait 退避 + 每日上限
 ├── deploy/
 │   ├── tgbot.service        # systemd 单元
 │   └── install.sh           # 一键部署
@@ -47,6 +49,7 @@
 | `!target @你的频道` | 设置目标频道 |
 | `!follow https://t.me/源频道` | 添加整频道自动跟播 |
 | `!unfollow <同>` | 取消跟播 |
+| `!follows` | 一次列出所有正在跟播的频道 + 冷却状态 |
 | `!list` / `!status` / `!pause` / `!resume` / `!help` | 查看/控制 |
 
 ---
@@ -115,9 +118,11 @@ sudo systemctl daemon-reload && sudo systemctl enable --now tgbot
 | `download.cookies_file` | `cookies.txt` | VK+X cookies，X 下载必需 |
 | `download.max_file_mb` | `3800` | 用户号上限 4096MB，留安全余量 |
 | `download.format` | mp4/H.264 优先 | 兼容性最好 |
-| `upload.min_interval_sec` | `60` | **冷却时间**：两帖最小间隔，防触发风控 |
+| `upload.min_interval_sec` | `30` | **主频道全局冷却**：两次发帖最小间隔，防触发风控 |
 | `upload.daily_cap` | `30` | 每日发帖上限 |
-| `follow.allow_media` | `["video","photo"]` | 只搬哪些媒体（视频/图片） |
+| `follow.allow_media` | `["video"]` | 只搬视频；连体消息含视频则整组转发 |
+| `follow.interval_sec` | `300` | **每个源频道冷却**：N 秒内只搬 1 条，期间更新忽略 |
+| `follow.mode` | `forward` | 跟播方式：`forward`=真转发（快、省资源，保留转发自+文案）；`download`=下载重传（无痕） |
 | `follow.block_forwarded` | `false` | 屏蔽"转发自他人"的帖子（防广告） |
 | `follow.ad_min_hits` | `1` | 同一条文案命中 ≥ 几个词才算广告（误伤多就调大） |
 | `follow.ad_keywords` | 中英常用广告词 | 正文/文案命中即屏蔽 |

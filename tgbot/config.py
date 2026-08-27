@@ -21,7 +21,7 @@ DEFAULTS: dict = {
         "socket_timeout": 60,
     },
     "upload": {
-        "min_interval_sec": 60,
+        "min_interval_sec": 30,
         "daily_cap": 30,
         "upload_timeout_sec": 1800,
         "caption_prefix": "",
@@ -34,14 +34,16 @@ DEFAULTS: dict = {
     },
     "follow": {
         "enabled": True,
-        "allow_media": ["video", "photo"],
+        "mode": "forward",
+        "interval_sec": 300,
+        "allow_media": ["video"],
         "block_forwarded": False,
         "ad_min_hits": 1,
         "ad_keywords": [
             "群组", "频道", "视频", "音乐", "必备", "搜索", "公开", "实力", "直播", "内幕",
             "数据", "精准", "备用", "体育", "存款", "微信", "支付宝", "银行卡", "客服", "经理",
             "官方", "品牌", "信赖", "真人", "无忧", "提款", "大额", "抽奖", "短句", "上头",
-            "精选", "系列", "t.me", "http", "@", "洗浴", "全国", "代理", "圈子", "会员",
+            "精选", "系列", "t.me", "http", "@", "短剧", "洗浴", "全国", "代理", "圈子", "会员",
             "内容", "付费", "资源", "链接", "详情", "议价", "推荐", "入圈", "梯子", "套餐",
             "vpn", "https", "实测", "退款", "退费", "下注", "一注",
         ],
