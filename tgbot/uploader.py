@@ -9,6 +9,7 @@ from typing import Optional
 
 from telethon import TelegramClient
 from telethon.errors import FloodWaitError
+from telethon.tl.types import DocumentAttributeVideo
 
 from .db import Store
 
@@ -109,7 +110,9 @@ class Uploader:
             self.store.mark_failed(task_id, f"forward failed: {last_err}")
             return None
 
-    async def upload(self, path: str, task_id: str, source_url: str) -> Optional[int]:
+    async def upload(
+        self, path: str, task_id: str, source_url: str, video_info=None
+    ) -> Optional[int]:
         """串行 + 冷却 + 每日上限后上传，返回目标消息 id；被跳过/失败返回 None。"""
         async with self._lock:
             if self.paused:
@@ -138,12 +141,21 @@ class Uploader:
             last_err: Optional[Exception] = None
             for attempt in range(3):
                 try:
+                    attributes = None
+                    if video_info is not None:
+                        attributes = [DocumentAttributeVideo(
+                            duration=video_info.duration,
+                            w=video_info.width,
+                            h=video_info.height,
+                            supports_streaming=True,
+                        )]
                     msg = await asyncio.wait_for(
                         self.client.send_file(
                             target,
                             file=path,
                             caption=caption or None,
                             supports_streaming=True,
+                            attributes=attributes,
                         ),
                         timeout=timeout,
                     )

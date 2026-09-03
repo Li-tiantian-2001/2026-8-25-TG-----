@@ -22,6 +22,16 @@ daily_cap = 30
 upload_timeout_sec = 1800
 caption_prefix = ""
 
+# Telegram 视频兼容性：正常视频直传，仅异常视频单线程转码（适合 2核2G）
+[media]
+enabled = true
+ffmpeg_path = "ffmpeg"
+ffprobe_path = "ffprobe"
+transcode_preset = "veryfast"
+transcode_crf = 23
+transcode_threads = 1
+max_height = 1080
+
 [storage]
 db_path = "tgbot.db"
 disk_watermark_pct = 80

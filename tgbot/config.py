@@ -26,6 +26,15 @@ DEFAULTS: dict = {
         "upload_timeout_sec": 1800,
         "caption_prefix": "",
     },
+    "media": {
+        "enabled": True,
+        "ffmpeg_path": "ffmpeg",
+        "ffprobe_path": "ffprobe",
+        "transcode_preset": "veryfast",
+        "transcode_crf": 23,
+        "transcode_threads": 1,
+        "max_height": 1080,
+    },
     "storage": {
         "db_path": "tgbot.db",
         "disk_watermark_pct": 80,

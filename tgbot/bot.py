@@ -25,6 +25,7 @@ from .tg_fetch import (
 )
 from .uploader import Uploader
 from .ytdlp_downloader import YtDlpDownloader
+from .media_processor import MediaProcessError, MediaProcessor
 
 log = logging.getLogger("tgbot.bot")
 
@@ -68,6 +69,7 @@ class TgBot:
 
         self.client = TelegramClient(cfg.session, cfg.api_id, cfg.api_hash)
         self.uploader = Uploader(self.client, self.store, cfg)
+        self.media_processor = MediaProcessor(cfg)
 
         fl = cfg.data["follow"]
         self.allow_media = list(fl.get("allow_media", ["video"]) or ["video"])
@@ -144,6 +146,7 @@ class TgBot:
         task_id = task["task_id"]
         kind = task["kind"]
         path: Optional[str] = None
+        source_path: Optional[str] = None
         try:
             if kind == "web":
                 url = task["url"]
@@ -203,6 +206,21 @@ class TgBot:
                 await self.report(f"❌ 取不到媒体: {task.get('source_url') or task.get('url')}")
                 return
 
+            source_path = path
+            self.set_status(task_id, "检测视频兼容性")
+            try:
+                video_info = await asyncio.to_thread(self.media_processor.prepare, path)
+            except MediaProcessError as e:
+                self.store.mark_failed(task_id, f"media validation failed: {e}")
+                await self.report(f"❌ 视频兼容性检测失败: {e}")
+                return
+            path = video_info.path
+            log.info(
+                "[%s] 视频处理=%s, %dx%d, %ds",
+                task_id[:8], video_info.action, video_info.width,
+                video_info.height, video_info.duration,
+            )
+
             size_mb = os.path.getsize(path) / 1024 / 1024
             max_mb = int(self.dl_cfg().get("max_file_mb", 3800))
             if size_mb > max_mb:
@@ -213,7 +231,7 @@ class TgBot:
             self.set_status(task_id, "uploading")
             await self.report(f"⬆️ 上传中 ({size_mb:.0f}MB): {os.path.basename(path)}")
             target_msg = await self.uploader.upload(
-                path, task_id, task.get("source_url") or task.get("url") or ""
+                path, task_id, task.get("source_url") or task.get("url") or "", video_info
             )
             if target_msg is None:
                 self.set_status(task_id, "skipped/failed")
@@ -225,6 +243,11 @@ class TgBot:
             if path and os.path.exists(path):
                 try:
                     os.remove(path)
+                except OSError:
+                    pass
+            if source_path and source_path != path and os.path.exists(source_path):
+                try:
+                    os.remove(source_path)
                 except OSError:
                     pass
             self.downloader.cleanup(task_id)

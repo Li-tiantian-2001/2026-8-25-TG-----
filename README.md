@@ -27,6 +27,7 @@
 │   ├── db.py                # SQLite（去重 / 设置 / 每日计数 / 广告屏蔽计数）
 │   ├── ad_filter.py         # 广告甄别（关键词 / 域名 / 转发标记）
 │   ├── ytdlp_downloader.py  # yt-dlp 下载（VK/X + cookies + mp4 优先）
+│   ├── media_processor.py   # ffprobe 检测 + 按需重封装/单线程转码
 │   ├── tg_fetch.py          # t.me 链接解析 + Telethon 取图片/视频
 │   └── uploader.py          # 串行上传/转发 + 冷却 + FloodWait 退避 + 每日上限
 ├── deploy/
@@ -120,6 +121,9 @@ sudo systemctl daemon-reload && sudo systemctl enable --now tgbot
 | `download.format` | mp4/H.264 优先 | 兼容性最好 |
 | `upload.min_interval_sec` | `30` | **主频道全局冷却**：两次发帖最小间隔，防触发风控 |
 | `upload.daily_cap` | `30` | 每日发帖上限 |
+| `media.enabled` | `true` | 上传前检测真实尺寸，并按需修复兼容性 |
+| `media.transcode_threads` | `1` | 异常视频转码线程数；2核2G建议保持 1 |
+| `media.max_height` | `1080` | 异常视频转码高度上限；不会放大小视频 |
 | `follow.allow_media` | `["video"]` | 只搬视频；连体消息含视频则整组转发 |
 | `follow.interval_sec` | `300` | **每个源频道冷却**：N 秒内只搬 1 条，期间更新忽略 |
 | `follow.mode` | `forward` | 跟播方式：`forward`=真转发（快、省资源，保留转发自+文案）；`download`=下载重传（无痕） |
